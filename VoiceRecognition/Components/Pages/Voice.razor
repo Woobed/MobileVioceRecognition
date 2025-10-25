@@ -1,0 +1,60 @@
+﻿@page "/voice"
+@inject ISpeechService SpeechService
+@using Microsoft.Maui.ApplicationModel
+@using VoiceRecognition.Abstractions
+@namespace VoiceRecognition.Components.Pages
+<h3>Голосовой поиск</h3>
+
+<p>@status</p>
+<textarea rows="4" cols="50" readonly>@recognizedText</textarea>
+<br/>
+
+<button @onclick="ToggleListening">@buttonLabel</button>
+<button @onclick="SearchInBrowser" disabled="@string.IsNullOrWhiteSpace(recognizedText)">Search</button>
+
+@code {
+    string recognizedText = "";
+    string status = "Готов";
+    string buttonLabel = "Начать запись";
+
+    protected override void OnInitialized()
+    {
+        SpeechService.PartialResult += s =>
+        {
+            recognizedText = s;
+            InvokeAsync(StateHasChanged);
+        };
+        SpeechService.FinalResult += s =>
+        {
+            recognizedText = s;
+            status = "Готово";
+            buttonLabel = "Начать запись";
+            InvokeAsync(StateHasChanged);
+        };
+    }
+
+    async Task ToggleListening()
+    {
+        if (!SpeechService.IsListening)
+        {
+            status = "Слушаю...";
+            buttonLabel = "Остановить";
+            await SpeechService.StartListeningAsync();
+        }
+        else
+        {
+            await SpeechService.StopListeningAsync();
+            status = "Остановлено";
+            buttonLabel = "Начать запись";
+        }
+        StateHasChanged();
+    }
+
+    async Task SearchInBrowser()
+    {
+        if (string.IsNullOrWhiteSpace(recognizedText)) return;
+        var q = Uri.EscapeDataString(recognizedText);
+        var url = $"https://www.google.com/search?q={q}";
+        await Microsoft.Maui.ApplicationModel.Launcher.OpenAsync(new Uri(url));
+    }
+}

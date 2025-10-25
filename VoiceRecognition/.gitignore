@@ -1,0 +1,22 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build Folders
+bin/
+obj/
+
+# APKs
+*.apk
+*.apks
+*.aab
+
+# Keystore (не хранить в Git)
+*.jks
+
+# NuGet
+*.nupkg
+packages/
