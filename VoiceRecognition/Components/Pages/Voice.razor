@@ -3,19 +3,32 @@
 @using Microsoft.Maui.ApplicationModel
 @using VoiceRecognition.Abstractions
 @namespace VoiceRecognition.Components.Pages
-<h3>Голосовой поиск</h3>
 
-<p>@status</p>
-<textarea rows="4" cols="50" readonly>@recognizedText</textarea>
-<br/>
+<div class="assistant-wrapper">
+    <div class="assistant-container @(SpeechService.IsListening ? "active" : "")">
+        <h3>Voice Recognition</h3>
+        <div class="status">@status</div>
 
-<button @onclick="ToggleListening">@buttonLabel</button>
-<button @onclick="SearchInBrowser" disabled="@string.IsNullOrWhiteSpace(recognizedText)">Search</button>
+        <button class="mic-button @(SpeechService.IsListening ? "listening" : "")"
+                @onclick="ToggleListening">
+            <span>@(SpeechService.IsListening ? "🛑" : "🎤")</span>
+        </button>
+
+        <div class="waveform">
+            <div class="bar" style="height:@BarHeights[0]px"></div>
+            <div class="bar" style="height:@BarHeights[1]px"></div>
+            <div class="bar" style="height:@BarHeights[2]px"></div>
+            <div class="bar" style="height:@BarHeights[3]px"></div>
+            <div class="bar" style="height:@BarHeights[4]px"></div>
+        </div>
+    </div>
+</div>
 
 @code {
     string recognizedText = "";
-    string status = "Готов";
-    string buttonLabel = "Начать запись";
+    string status = "Скажи что-нибудь…";
+
+    int[] BarHeights = new int[5];
 
     protected override void OnInitialized()
     {
@@ -24,11 +37,20 @@
             recognizedText = s;
             InvokeAsync(StateHasChanged);
         };
-        SpeechService.FinalResult += s =>
+
+        SpeechService.FinalResult += async s =>
         {
             recognizedText = s;
             status = "Готово";
-            buttonLabel = "Начать запись";
+            await InvokeAsync(StateHasChanged);
+            await SearchInBrowser();
+        };
+
+        // Подписка на VolumeChanged
+        SpeechService.VolumeChanged += vol =>
+        {
+            for (int i = 0; i < BarHeights.Length; i++)
+                BarHeights[i] = 10 + (int)(vol * 5 * (i + 1) / BarHeights.Length); // масштабируем полоски
             InvokeAsync(StateHasChanged);
         };
     }
@@ -37,16 +59,18 @@
     {
         if (!SpeechService.IsListening)
         {
-            status = "Слушаю...";
-            buttonLabel = "Остановить";
+            status = "Слушаю…";
+            recognizedText = "";
             await SpeechService.StartListeningAsync();
         }
         else
         {
             await SpeechService.StopListeningAsync();
-            status = "Остановлено";
-            buttonLabel = "Начать запись";
+            status = "Останавливаю…";
+            await SearchInBrowser();
+            status = "Скажи что-нибудь…";
         }
+
         StateHasChanged();
     }
 
@@ -55,6 +79,6 @@
         if (string.IsNullOrWhiteSpace(recognizedText)) return;
         var q = Uri.EscapeDataString(recognizedText);
         var url = $"https://www.google.com/search?q={q}";
-        await Microsoft.Maui.ApplicationModel.Launcher.OpenAsync(new Uri(url));
+        await Launcher.OpenAsync(new Uri(url));
     }
 }

@@ -1,12 +1,18 @@
-﻿namespace VoiceRecognition.Abstractions
-{
+﻿namespace VoiceRecognition.Abstractions {
+
     public interface ISpeechService
     {
-        Task<bool> RequestPermissionsAsync();
-        Task StartListeningAsync(CancellationToken ct = default);
-        Task StopListeningAsync();
+        bool IsListening { get; }
+
         event Action<string>? PartialResult;
         event Action<string>? FinalResult;
-        bool IsListening { get; }
+
+        // Новое событие для анимации волн
+        event Action<float>? VolumeChanged;
+
+        Task StartListeningAsync(CancellationToken ct = default);
+        Task StopListeningAsync();
+        Task<bool> RequestPermissionsAsync();
     }
+
 }
