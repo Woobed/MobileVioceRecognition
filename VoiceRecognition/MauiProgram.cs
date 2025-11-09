@@ -17,9 +17,9 @@ namespace VoiceRecognition
                     fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                 })
                 .UseMauiCommunityToolkitCore(); ;
-
             builder.Services.AddMauiBlazorWebView();
             builder.Services.AddSingleton<ISpeechService, CommunitySpeechService>();
+
 
 #if DEBUG
             builder.Services.AddBlazorWebViewDeveloperTools();

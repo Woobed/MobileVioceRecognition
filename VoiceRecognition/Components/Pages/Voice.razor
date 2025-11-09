@@ -1,5 +1,6 @@
-﻿@page "/voice"
+﻿@page "/"
 @inject ISpeechService SpeechService
+@inject IJSRuntime JS
 @using Microsoft.Maui.ApplicationModel
 @using VoiceRecognition.Abstractions
 @namespace VoiceRecognition.Components.Pages
@@ -23,11 +24,21 @@
         </div>
     </div>
 </div>
+@if (showProtocolOverlay)
+{
+    <div class="protocol-overlay" style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; justify-content:center; align-items:center; background-color:rgba(0,0,0,0.5);">
+        <img src="images/tony.jpg" alt="Jarvis Activation" style="width:max-content;height:max-content;" />
+        <div class="protocol-text" style="position:absolute; bottom:20px; color:white;">Protocol Activated</div>
+    </div>
+}
 
+<!-- HTML audio элемент (в BlazorWebView это будет локальный файл из wwwroot) -->
+<audio id="activateAudio" src="sounds/fart-with-reverb.mp3" preload="auto"></audio>
+<script src="js/site.js"></script>
 @code {
     string recognizedText = "";
     string status = "Скажи что-нибудь…";
-
+    bool showProtocolOverlay = false;
     int[] BarHeights = new int[5];
 
     protected override void OnInitialized()
@@ -77,8 +88,31 @@
     async Task SearchInBrowser()
     {
         if (string.IsNullOrWhiteSpace(recognizedText)) return;
-        var q = Uri.EscapeDataString(recognizedText);
-        var url = $"https://www.google.com/search?q={q}";
-        await Launcher.OpenAsync(new Uri(url));
+        if (recognizedText.Contains("Джарвис") && recognizedText.Contains("активировать") && recognizedText.Contains("протокол"))
+        {
+            await ActivateProtocolEffect();
+        }
+        else
+        {
+            var q = Uri.EscapeDataString(recognizedText);
+            var url = $"https://www.google.com/search?q={q}";
+            await Launcher.OpenAsync(new Uri(url));
+        }
+    }
+
+    async Task ActivateProtocolEffect()
+    {
+        showProtocolOverlay = true;
+        await InvokeAsync(StateHasChanged);
+
+        // Вызов JS функции, которая проиграет <audio>
+        await JS.InvokeVoidAsync("playActivationSound");
+
+        // Показать 3 секунды
+        await Task.Delay(3000);
+
+        showProtocolOverlay = false;
+        await InvokeAsync(StateHasChanged);
     }
 }
+
