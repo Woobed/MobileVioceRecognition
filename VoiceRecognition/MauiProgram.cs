@@ -1,6 +1,7 @@
 ﻿using CommunityToolkit.Maui.Core;
 using Microsoft.Extensions.Logging;
 using VoiceRecognition.Abstractions;
+using VoiceRecognition.DBContext.Repositories;
 using VoiceRecognition.Services;
 
 namespace VoiceRecognition
@@ -18,6 +19,8 @@ namespace VoiceRecognition
                 })
                 .UseMauiCommunityToolkitCore(); ;
             builder.Services.AddMauiBlazorWebView();
+            builder.Services.AddSingleton<DBRepository>();
+            builder.Services.AddSingleton<SharingService>();
             builder.Services.AddSingleton<ISpeechService, CommunitySpeechService>();
 
 

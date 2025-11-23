@@ -1,8 +1,14 @@
 ﻿@page "/"
+@implements IDisposable
 @inject ISpeechService SpeechService
 @inject IJSRuntime JS
+@inject DBRepository _repository
+@inject SharingService SharingService
 @using Microsoft.Maui.ApplicationModel
 @using VoiceRecognition.Abstractions
+@using VoiceRecognition.DBContext.Models
+@using VoiceRecognition.DBContext.Repositories
+@using VoiceRecognition.Services
 @namespace VoiceRecognition.Components.Pages
 
 <div class="assistant-wrapper">
@@ -16,54 +22,216 @@
         </button>
 
         <div class="waveform">
-            <div class="bar" style="height:@BarHeights[0]px"></div>
-            <div class="bar" style="height:@BarHeights[1]px"></div>
-            <div class="bar" style="height:@BarHeights[2]px"></div>
-            <div class="bar" style="height:@BarHeights[3]px"></div>
-            <div class="bar" style="height:@BarHeights[4]px"></div>
+            @foreach (var height in BarHeights)
+            {
+                <div class="bar" style="height:@(height)px"></div>
+            }
+        </div>
+
+        <!-- Отображение распознанного текста -->
+        @if (!string.IsNullOrEmpty(recognizedText))
+        {
+            <div class="recognized-text">
+                @recognizedText
+            </div>
+        }
+
+        <!-- Кнопки управления историей -->
+        <div class="history-controls">
+            <button class="btn-history" @onclick="ShowHistory">
+                📋 История (@recordCount)
+            </button>
         </div>
     </div>
 </div>
+
+<!-- Оверлей протокола -->
 @if (showProtocolOverlay)
 {
-    <div class="protocol-overlay" style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; justify-content:center; align-items:center; background-color:rgba(0,0,0,0.5);">
-        <img src="images/tony.jpg" alt="Jarvis Activation" style="width:max-content;height:max-content;" />
-        <div class="protocol-text" style="position:absolute; bottom:20px; color:white;">Protocol Activated</div>
+    <div class="protocol-overlay">
+        <img src="images/tony.jpg" alt="Jarvis Activation" />
+        <div class="protocol-text">Protocol Activated</div>
     </div>
 }
 
-<!-- HTML audio элемент (в BlazorWebView это будет локальный файл из wwwroot) -->
+<!-- Модальное окно истории -->
+@if (showHistoryModal)
+{
+    <div class="modal-overlay" @onclick="CloseHistory">
+        <div class="modal-content" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h4>История запросов</h4>
+                <button class="btn-close" @onclick="CloseHistory">✕</button>
+            </div>
+
+            <div class="search-box">
+                <input type="text" @bind="searchText" @oninput="OnSearchTextChanged"
+                       placeholder="Поиск в истории..." />
+            </div>
+
+            <div class="history-list">
+                @if (filteredRecords.Any())
+                {
+                    @foreach (var record in filteredRecords)
+                    {
+                        <div class="history-item @(record.IsFavorite ? "favorite" : "")">
+                            <div class="record-text">@record.Text</div>
+                            <div class="record-meta">
+                                <span class="record-date">@record.CreatedAt.ToString("dd.MM.yyyy HH:mm")</span>
+                                <div class="record-actions">
+                                    <button class="btn-favorite"
+                                            @onclick="() => ToggleFavorite(record)"
+                                            title="@(record.IsFavorite ? "Убрать из избранного" : "В избранное")">
+                                        @if (record.IsFavorite)
+                                        {
+                                            <span>⭐</span>
+                                        }
+                                        else
+                                        {
+                                            <span>☆</span>
+                                        }
+                                    </button>
+                                    <button class="btn-share"
+                                            @onclick="() => ShareRecord(record)"
+                                            title="Поделиться">
+                                        📤
+                                    </button>
+                                    <button class="btn-delete"
+                                            @onclick="() => DeleteRecord(record)"
+                                            title="Удалить">
+                                        🗑️
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="empty-history">
+                        @if (string.IsNullOrEmpty(searchText))
+                        {
+                            <p>История запросов пуста</p>
+                        }
+                        else
+                        {
+                            <p>Ничего не найдено</p>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
 <audio id="activateAudio" src="sounds/fart-with-reverb.mp3" preload="auto"></audio>
 <script src="js/site.js"></script>
+
 @code {
     string recognizedText = "";
     string status = "Скажи что-нибудь…";
     bool showProtocolOverlay = false;
+    bool showHistoryModal = false;
+    string searchText = "";
     int[] BarHeights = new int[5];
 
-    protected override void OnInitialized()
+    // Данные для истории
+    int recordCount = 0;
+    List<RequestModel> allRecords = new();
+    List<RequestModel> filteredRecords = new();
+
+    // Флаг для отслеживания подписок
+    private bool _areEventsSubscribed = false;
+
+    protected override async Task OnInitializedAsync()
     {
-        SpeechService.PartialResult += s =>
-        {
-            recognizedText = s;
-            InvokeAsync(StateHasChanged);
-        };
+        await SubscribeToEvents();
+        await LoadRecords();
+    }
 
-        SpeechService.FinalResult += async s =>
+    private async Task SubscribeToEvents()
+    {
+        if (!_areEventsSubscribed)
         {
-            recognizedText = s;
-            status = "Готово";
-            await InvokeAsync(StateHasChanged);
-            await SearchInBrowser();
-        };
+            SpeechService.PartialResult += OnPartialResult;
+            SpeechService.FinalResult += OnFinalResult;
+            SpeechService.VolumeChanged += OnVolumeChanged;
+            _areEventsSubscribed = true;
 
-        // Подписка на VolumeChanged
-        SpeechService.VolumeChanged += vol =>
+            // Логирование для отладки
+            System.Diagnostics.Debug.WriteLine("✅ События подписаны");
+        }
+    }
+
+    private void UnsubscribeFromEvents()
+    {
+        if (_areEventsSubscribed)
         {
-            for (int i = 0; i < BarHeights.Length; i++)
-                BarHeights[i] = 10 + (int)(vol * 5 * (i + 1) / BarHeights.Length); // масштабируем полоски
-            InvokeAsync(StateHasChanged);
-        };
+            SpeechService.PartialResult -= OnPartialResult;
+            SpeechService.FinalResult -= OnFinalResult;
+            SpeechService.VolumeChanged -= OnVolumeChanged;
+            _areEventsSubscribed = false;
+
+            // Логирование для отладки
+            System.Diagnostics.Debug.WriteLine("✅ События отписаны");
+        }
+    }
+
+    private void OnPartialResult(string text)
+    {
+        recognizedText = text;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async void OnFinalResult(string text)
+    {
+        recognizedText = text;
+        status = "Готово";
+        await InvokeAsync(StateHasChanged);
+        await SearchInBrowser();
+    }
+
+    private void OnVolumeChanged(float volume)
+    {
+        for (int i = 0; i < BarHeights.Length; i++)
+            BarHeights[i] = 10 + (int)(volume * 5 * (i + 1) / BarHeights.Length);
+        InvokeAsync(StateHasChanged);
+    }
+
+    async Task LoadRecords()
+    {
+        try
+        {
+            allRecords = await _repository.GetAllRecordsAsync();
+            recordCount = allRecords.Count;
+            FilterRecords();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"❌ Ошибка загрузки записей: {ex.Message}");
+        }
+    }
+
+    void FilterRecords()
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            filteredRecords = allRecords;
+        }
+        else
+        {
+            filteredRecords = allRecords
+                .Where(r => r.Text.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+
+    void OnSearchTextChanged(ChangeEventArgs e)
+    {
+        searchText = e.Value?.ToString() ?? "";
+        FilterRecords();
+        StateHasChanged();
     }
 
     async Task ToggleListening()
@@ -81,22 +249,49 @@
             await SearchInBrowser();
             status = "Скажи что-нибудь…";
         }
-
         StateHasChanged();
     }
 
     async Task SearchInBrowser()
     {
         if (string.IsNullOrWhiteSpace(recognizedText)) return;
+
         if (recognizedText.Contains("Джарвис") && recognizedText.Contains("активировать") && recognizedText.Contains("протокол"))
         {
             await ActivateProtocolEffect();
         }
         else
         {
+
             var q = Uri.EscapeDataString(recognizedText);
             var url = $"https://www.google.com/search?q={q}";
+            await SaveRecordToDatabase(url);
             await Launcher.OpenAsync(new Uri(url));
+        }
+    }
+
+    async Task SaveRecordToDatabase(string request)
+    {
+        if (!string.IsNullOrWhiteSpace(request))
+        {
+            try
+            {
+                var record = new RequestModel
+                {
+                    Text = request,
+                    CreatedAt = DateTime.Now,
+                    IsFavorite = false
+                };
+
+                await _repository.SaveRecordAsync(record);
+                await LoadRecords();
+
+                System.Diagnostics.Debug.WriteLine($"✅ Запись сохранена: {recognizedText}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"❌ Ошибка сохранения: {ex.Message}");
+            }
         }
     }
 
@@ -104,15 +299,53 @@
     {
         showProtocolOverlay = true;
         await InvokeAsync(StateHasChanged);
-
-        // Вызов JS функции, которая проиграет <audio>
         await JS.InvokeVoidAsync("playActivationSound");
-
-        // Показать 3 секунды
         await Task.Delay(3000);
-
         showProtocolOverlay = false;
         await InvokeAsync(StateHasChanged);
     }
-}
 
+    async Task ShowHistory()
+    {
+        await LoadRecords();
+        showHistoryModal = true;
+        StateHasChanged();
+    }
+
+    void CloseHistory()
+    {
+        showHistoryModal = false;
+        searchText = "";
+        FilterRecords();
+        StateHasChanged();
+    }
+
+    async Task ShareRecord(RequestModel record)
+    {
+        await SharingService.ShareTextAsync(record.Text, "Поделиться записью");
+    }
+
+    async Task ToggleFavorite(RequestModel record)
+    {
+        await _repository.ToggleFavoriteAsync(record.Id);
+        await LoadRecords();
+    }
+
+    async Task DeleteRecord(RequestModel record)
+    {
+        bool confirm = await JS.InvokeAsync<bool>("confirm", "Удалить эту запись?");
+        if (confirm)
+        {
+            await _repository.DeleteRecordAsync(record);
+            await LoadRecords();
+        }
+    }
+
+    public void Dispose()
+    {
+        UnsubscribeFromEvents();
+
+        // Логирование для отладки
+        System.Diagnostics.Debug.WriteLine("🔴 Компонент удален");
+    }
+}

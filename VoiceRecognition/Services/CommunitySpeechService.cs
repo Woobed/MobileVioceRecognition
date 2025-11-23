@@ -1,15 +1,16 @@
 ﻿using CommunityToolkit.Maui.Media;
 using System.Globalization;
 using VoiceRecognition.Abstractions;
+using VoiceRecognition.DBContext.Models;
+using VoiceRecognition.DBContext.Repositories;
 
 namespace VoiceRecognition.Services
-
 {
-
-    public class CommunitySpeechService : ISpeechService
+    public class CommunitySpeechService : ISpeechService, IDisposable
     {
         CancellationTokenSource? _cts;
-        private bool _isStopping = false; // флаг остановки
+        private bool _isStopping = false;
+        private bool _disposed = false;
         public bool IsListening { get; private set; }
 
         public event Action<string>? PartialResult;
@@ -20,15 +21,16 @@ namespace VoiceRecognition.Services
 
         public async Task<bool> RequestPermissionsAsync()
         {
-            var status = await Permissions.CheckStatusAsync<Permissions.Microphone>();
-            if (status != PermissionStatus.Granted)
-                status = await Permissions.RequestAsync<Permissions.Microphone>();
-            return status == PermissionStatus.Granted;
+            var micstatus = await Permissions.CheckStatusAsync<Permissions.Microphone>();
+            if (micstatus != PermissionStatus.Granted)
+                micstatus = await Permissions.RequestAsync<Permissions.Microphone>();
+
+            return micstatus == PermissionStatus.Granted;
         }
 
         public async Task StartListeningAsync(CancellationToken ct = default)
         {
-            if (IsListening || _isStopping) return; // защита от двойного старта
+            if (IsListening || _isStopping) return;
 
             if (!await RequestPermissionsAsync())
                 throw new Exception("Microphone permission denied");
@@ -38,6 +40,10 @@ namespace VoiceRecognition.Services
 
             try
             {
+                // Убедимся, что события подписаны только один раз
+                SpeechToText.Default.RecognitionResultUpdated -= OnRecognitionUpdated;
+                SpeechToText.Default.RecognitionResultCompleted -= OnRecognitionCompleted;
+
                 SpeechToText.Default.RecognitionResultUpdated += OnRecognitionUpdated;
                 SpeechToText.Default.RecognitionResultCompleted += OnRecognitionCompleted;
 
@@ -63,9 +69,6 @@ namespace VoiceRecognition.Services
             {
                 _cts?.Cancel();
                 await SpeechToText.Default.StopListenAsync();
-
-                SpeechToText.Default.RecognitionResultUpdated -= OnRecognitionUpdated;
-                SpeechToText.Default.RecognitionResultCompleted -= OnRecognitionCompleted;
             }
             finally
             {
@@ -94,7 +97,16 @@ namespace VoiceRecognition.Services
                 await Task.Delay(100);
             }
         }
+
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                _disposed = true;
+                SpeechToText.Default.RecognitionResultUpdated -= OnRecognitionUpdated;
+                SpeechToText.Default.RecognitionResultCompleted -= OnRecognitionCompleted;
+                _cts?.Dispose();
+            }
+        }
     }
-
-
 }
