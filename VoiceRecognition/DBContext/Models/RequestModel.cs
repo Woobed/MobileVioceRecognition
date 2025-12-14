@@ -10,6 +10,8 @@ namespace VoiceRecognition.DBContext.Models
 
         [MaxLength(1000)]
         public string Text { get; set; } = string.Empty;
+        [MaxLength(1000)]
+        public string Url { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 
         public bool IsFavorite { get; set; }

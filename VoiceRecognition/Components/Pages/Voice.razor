@@ -28,7 +28,6 @@
             }
         </div>
 
-        <!-- Отображение распознанного текста -->
         @if (!string.IsNullOrEmpty(recognizedText))
         {
             <div class="recognized-text">
@@ -36,7 +35,6 @@
             </div>
         }
 
-        <!-- Кнопки управления историей -->
         <div class="history-controls">
             <button class="btn-history" @onclick="ShowHistory">
                 📋 История (@recordCount)
@@ -45,7 +43,6 @@
     </div>
 </div>
 
-<!-- Оверлей протокола -->
 @if (showProtocolOverlay)
 {
     <div class="protocol-overlay">
@@ -54,7 +51,6 @@
     </div>
 }
 
-<!-- Модальное окно истории -->
 @if (showHistoryModal)
 {
     <div class="modal-overlay" @onclick="CloseHistory">
@@ -76,6 +72,7 @@
                     {
                         <div class="history-item @(record.IsFavorite ? "favorite" : "")">
                             <div class="record-text">@record.Text</div>
+                            <div class="record-text">@record.Url</div>
                             <div class="record-meta">
                                 <span class="record-date">@record.CreatedAt.ToString("dd.MM.yyyy HH:mm")</span>
                                 <div class="record-actions">
@@ -135,7 +132,6 @@
     string searchText = "";
     int[] BarHeights = new int[5];
 
-    // Данные для истории
     int recordCount = 0;
     List<RequestModel> allRecords = new();
     List<RequestModel> filteredRecords = new();
@@ -157,9 +153,6 @@
             SpeechService.FinalResult += OnFinalResult;
             SpeechService.VolumeChanged += OnVolumeChanged;
             _areEventsSubscribed = true;
-
-            // Логирование для отладки
-            System.Diagnostics.Debug.WriteLine("✅ События подписаны");
         }
     }
 
@@ -171,9 +164,6 @@
             SpeechService.FinalResult -= OnFinalResult;
             SpeechService.VolumeChanged -= OnVolumeChanged;
             _areEventsSubscribed = false;
-
-            // Логирование для отладки
-            System.Diagnostics.Debug.WriteLine("✅ События отписаны");
         }
     }
 
@@ -217,7 +207,7 @@
     {
         if (string.IsNullOrWhiteSpace(searchText))
         {
-            filteredRecords = allRecords;
+            filteredRecords = allRecords.OrderBy(t => t.IsFavorite == false).ToList();
         }
         else
         {
@@ -265,20 +255,21 @@
 
             var q = Uri.EscapeDataString(recognizedText);
             var url = $"https://www.google.com/search?q={q}";
-            await SaveRecordToDatabase(url);
+            await SaveRecordToDatabase(recognizedText, url);
             await Launcher.OpenAsync(new Uri(url));
         }
     }
 
-    async Task SaveRecordToDatabase(string request)
+    async Task SaveRecordToDatabase(string text, string url)
     {
-        if (!string.IsNullOrWhiteSpace(request))
+        if (!string.IsNullOrWhiteSpace(text))
         {
             try
             {
                 var record = new RequestModel
                 {
-                    Text = request,
+                    Text = text,
+                    Url = url,
                     CreatedAt = DateTime.Now,
                     IsFavorite = false
                 };
@@ -322,7 +313,7 @@
 
     async Task ShareRecord(RequestModel record)
     {
-        await SharingService.ShareTextAsync(record.Text, "Поделиться записью");
+        await SharingService.ShareTextAsync(record.Text + "\n" + record.Url, "Поделиться записью");
     }
 
     async Task ToggleFavorite(RequestModel record)
@@ -345,7 +336,5 @@
     {
         UnsubscribeFromEvents();
 
-        // Логирование для отладки
-        System.Diagnostics.Debug.WriteLine("🔴 Компонент удален");
     }
 }
